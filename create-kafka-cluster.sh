@@ -214,19 +214,29 @@ else
     print_info "Configuração existente encontrada!"
 fi
 
-# Extrai o ID e versão da configuração
+# Extrai o ID da configuração
 CLUSTER_CONFIG_ID=$(echo "$CLUSTER_CONFIG_INFO" | jq -r '.id' 2>/dev/null)
-CLUSTER_CONFIG_VERSION=$(echo "$CLUSTER_CONFIG_INFO" | jq -r '."version"' 2>/dev/null)
 
 if [[ -z "$CLUSTER_CONFIG_ID" || "$CLUSTER_CONFIG_ID" == "null" ]]; then
     print_error "Não foi possível obter o CLUSTER_CONFIG_ID"
     exit 1
 fi
 
-if [[ -z "$CLUSTER_CONFIG_VERSION" || "$CLUSTER_CONFIG_VERSION" == "null" ]]; then
-    print_error "Não foi possível obter o CLUSTER_CONFIG_VERSION"
-    exit 1
+# Obtém a versão da configuração usando o comando get
+print_info "Obtendo versão da configuração..."
+CLUSTER_CONFIG_DETAILS=$(oci kafka cluster-config get --cluster-config-id "$CLUSTER_CONFIG_ID" --query 'data."version"' --raw-output 2>/dev/null)
+
+if [[ -n "$CLUSTER_CONFIG_DETAILS" && "$CLUSTER_CONFIG_DETAILS" != "null" ]]; then
+    CLUSTER_CONFIG_VERSION="$CLUSTER_CONFIG_DETAILS"
+    print_info "Versão obtida: $CLUSTER_CONFIG_VERSION"
+else
+    # Fallback: para cluster-config, a versão é sempre 1 (primeira versão)
+    CLUSTER_CONFIG_VERSION=1
+    print_warning "Não foi possível obter a versão, usando versão padrão: 1"
 fi
+
+print_info "Debug - JSON da configuração:"
+echo "$CLUSTER_CONFIG_INFO" | jq '.' 2>/dev/null || echo "Erro ao processar JSON"
 
 print_info "Configuração do cluster Kafka:"
 print_info "  CLUSTER_CONFIG_ID: $CLUSTER_CONFIG_ID"
