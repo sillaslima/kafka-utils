@@ -96,9 +96,10 @@ set +a
 # OCPU_COUNT=1
 # STORAGE_SIZE=100
 
-# Configuração do Cluster (opcional)
-# CLUSTER_CONFIG_ID=
-# CLUSTER_CONFIG_VERSION=
+# Configuração do Cluster (obtida/criada automaticamente)
+# O script verifica se existe uma configuração no compartment.
+# Se não existir, cria automaticamente uma nova configuração.
+# Depois obtém o CLUSTER_CONFIG_ID e CLUSTER_CONFIG_VERSION
 
 # Tags (opcional)
 FREEFORM_TAGS='{"Environment":"Development","Project":"KafkaManaged"}'
@@ -166,6 +167,57 @@ if [[ -z "$STORAGE_SIZE" || $STORAGE_SIZE -lt 100 ]]; then
     exit 1
 fi
 
+# Obtém ou cria automaticamente o cluster config ID e version
+print_info "Verificando configuração do cluster Kafka..."
+
+# Lista as configurações disponíveis e pega a mais recente
+CLUSTER_CONFIG_INFO=$(oci kafka cluster-config list --compartment-id "$COMPARTMENT_ID" --query 'data[0]' --raw-output 2>/dev/null)
+
+if [[ -z "$CLUSTER_CONFIG_INFO" || "$CLUSTER_CONFIG_INFO" == "null" ]]; then
+    print_warning "Nenhuma configuração de cluster Kafka encontrada no compartment $COMPARTMENT_ID"
+    print_info "Criando nova configuração automaticamente..."
+    
+    # Cria uma nova configuração usando a configuração mais recente disponível
+    print_info "Executando: oci kafka cluster-config create --compartment-id $COMPARTMENT_ID --latest-config"
+    
+    if oci kafka cluster-config create --compartment-id "$COMPARTMENT_ID" --latest-config --wait-for-state SUCCEEDED --wait-for-state FAILED --max-wait-seconds 300 > "$TEMP_DIR/cluster-config-output-${TIMESTAMP}.json" 2>&1; then
+        print_info "Configuração criada com sucesso!"
+        
+        # Obtém a configuração recém-criada
+        CLUSTER_CONFIG_INFO=$(oci kafka cluster-config list --compartment-id "$COMPARTMENT_ID" --query 'data[0]' --raw-output 2>/dev/null)
+        
+        if [[ -z "$CLUSTER_CONFIG_INFO" || "$CLUSTER_CONFIG_INFO" == "null" ]]; then
+            print_error "Não foi possível obter a configuração recém-criada"
+            exit 1
+        fi
+    else
+        print_error "Falha ao criar configuração do cluster Kafka"
+        print_error "Verifique os logs em: $TEMP_DIR/cluster-config-output-${TIMESTAMP}.json"
+        cat "$TEMP_DIR/cluster-config-output-${TIMESTAMP}.json"
+        exit 1
+    fi
+else
+    print_info "Configuração existente encontrada!"
+fi
+
+# Extrai o ID e versão da configuração
+CLUSTER_CONFIG_ID=$(echo "$CLUSTER_CONFIG_INFO" | jq -r '.id' 2>/dev/null)
+CLUSTER_CONFIG_VERSION=$(echo "$CLUSTER_CONFIG_INFO" | jq -r '."version"' 2>/dev/null)
+
+if [[ -z "$CLUSTER_CONFIG_ID" || "$CLUSTER_CONFIG_ID" == "null" ]]; then
+    print_error "Não foi possível obter o CLUSTER_CONFIG_ID"
+    exit 1
+fi
+
+if [[ -z "$CLUSTER_CONFIG_VERSION" || "$CLUSTER_CONFIG_VERSION" == "null" ]]; then
+    print_error "Não foi possível obter o CLUSTER_CONFIG_VERSION"
+    exit 1
+fi
+
+print_info "Configuração do cluster Kafka:"
+print_info "  CLUSTER_CONFIG_ID: $CLUSTER_CONFIG_ID"
+print_info "  CLUSTER_CONFIG_VERSION: $CLUSTER_CONFIG_VERSION"
+
 print_info "Validações concluídas com sucesso!"
 
 ################################################################################
@@ -187,8 +239,8 @@ show_env_debug() {
         echo "NODE_COUNT: ${NODE_COUNT:-'NÃO DEFINIDO'}"
         echo "OCPU_COUNT: ${OCPU_COUNT:-'NÃO DEFINIDO'}"
         echo "STORAGE_SIZE: ${STORAGE_SIZE:-'NÃO DEFINIDO'}"
-        echo "CLUSTER_CONFIG_ID: ${CLUSTER_CONFIG_ID:-'NÃO DEFINIDO'}"
-        echo "CLUSTER_CONFIG_VERSION: ${CLUSTER_CONFIG_VERSION:-'NÃO DEFINIDO'}"
+        echo "CLUSTER_CONFIG_ID: ${CLUSTER_CONFIG_ID:-'SERÁ OBTIDO AUTOMATICAMENTE'}"
+        echo "CLUSTER_CONFIG_VERSION: ${CLUSTER_CONFIG_VERSION:-'SERÁ OBTIDO AUTOMATICAMENTE'}"
         print_info "=========================================="
     fi
 }
@@ -296,7 +348,8 @@ if [[ "$DEFINED_TAGS" != "{}" ]]; then
 fi
 
 # Adiciona opção de espera e formato JSON de saída
-CMD="$CMD --wait-for-state ACTIVE --wait-for-state FAILED --max-wait-seconds 3600"
+# Para criação de cluster Kafka, aguardamos SUCCEEDED (sucesso) ou FAILED (falha)
+CMD="$CMD --wait-for-state SUCCEEDED --wait-for-state FAILED --max-wait-seconds 3600"
 
 # Salva o comando para referência
 echo "$CMD" > "$TEMP_DIR/oci-command-${TIMESTAMP}.sh"
@@ -316,9 +369,11 @@ if eval "$CMD" > "$TEMP_DIR/cluster-output-${TIMESTAMP}.json" 2>&1; then
     if command -v jq &> /dev/null; then
         CLUSTER_ID=$(jq -r '.data.id' "$TEMP_DIR/cluster-output-${TIMESTAMP}.json" 2>/dev/null || echo "N/A")
         CLUSTER_STATE=$(jq -r '.data["lifecycle-state"]' "$TEMP_DIR/cluster-output-${TIMESTAMP}.json" 2>/dev/null || echo "N/A")
+        WORK_REQUEST_STATE=$(jq -r '.data["lifecycle-state"]' "$TEMP_DIR/cluster-output-${TIMESTAMP}.json" 2>/dev/null || echo "N/A")
         
         echo "Cluster ID: $CLUSTER_ID"
-        echo "Estado: $CLUSTER_STATE"
+        echo "Estado do Cluster: $CLUSTER_STATE"
+        echo "Estado da Work Request: $WORK_REQUEST_STATE"
     fi
     
     print_info "Detalhes completos salvos em: $TEMP_DIR/cluster-output-${TIMESTAMP}.json"
