@@ -178,9 +178,23 @@ if [[ -z "$CLUSTER_CONFIG_INFO" || "$CLUSTER_CONFIG_INFO" == "null" ]]; then
     print_info "Criando nova configuração automaticamente..."
     
     # Cria uma nova configuração usando a configuração mais recente disponível
-    print_info "Executando: oci kafka cluster-config create --compartment-id $COMPARTMENT_ID --latest-config"
+    print_info "Gerando configuração mais recente..."
     
-    if oci kafka cluster-config create --compartment-id "$COMPARTMENT_ID" --latest-config > "$TEMP_DIR/cluster-config-output-${TIMESTAMP}.json" 2>&1; then
+    # Gera o JSON da configuração mais recente
+    print_info "Gerando template de configuração..."
+    if ! oci kafka cluster-config create --generate-param-json-input latest-config > "$TEMP_DIR/latest-config.json" 2>/dev/null; then
+        print_error "Falha ao gerar template de configuração"
+        exit 1
+    fi
+    
+    if [[ ! -f "$TEMP_DIR/latest-config.json" || ! -s "$TEMP_DIR/latest-config.json" ]]; then
+        print_error "Arquivo de configuração não foi gerado corretamente"
+        exit 1
+    fi
+    
+    print_info "Executando: oci kafka cluster-config create --compartment-id $COMPARTMENT_ID --latest-config file://$TEMP_DIR/latest-config.json"
+    
+    if oci kafka cluster-config create --compartment-id "$COMPARTMENT_ID" --latest-config file://"$TEMP_DIR/latest-config.json" > "$TEMP_DIR/cluster-config-output-${TIMESTAMP}.json" 2>&1; then
         print_info "Configuração criada com sucesso!"
         
         # Obtém a configuração recém-criada
