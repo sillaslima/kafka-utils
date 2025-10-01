@@ -180,7 +180,7 @@ if [[ -z "$CLUSTER_CONFIG_INFO" || "$CLUSTER_CONFIG_INFO" == "null" ]]; then
     # Cria uma nova configuração usando a configuração mais recente disponível
     print_info "Executando: oci kafka cluster-config create --compartment-id $COMPARTMENT_ID --latest-config"
     
-    if oci kafka cluster-config create --compartment-id "$COMPARTMENT_ID" --latest-config --wait-for-state SUCCEEDED --wait-for-state FAILED --max-wait-seconds 300 > "$TEMP_DIR/cluster-config-output-${TIMESTAMP}.json" 2>&1; then
+    if oci kafka cluster-config create --compartment-id "$COMPARTMENT_ID" --latest-config > "$TEMP_DIR/cluster-config-output-${TIMESTAMP}.json" 2>&1; then
         print_info "Configuração criada com sucesso!"
         
         # Obtém a configuração recém-criada
