@@ -2,10 +2,22 @@
 
 ################################################################################
 # Script para criar um cluster Kafka na Oracle Cloud Infrastructure (OCI)
-# Autor: Gerado automaticamente
-# Data: 01/10/2025
+
 # Descrição: Este script cria todos os arquivos JSON necessários e executa
 #            o comando OCI CLI para criar um cluster Kafka gerenciado
+#
+# USO:
+#   ./create-kafka-cluster.sh                    # Usa arquivo .env padrão
+#   ./create-kafka-cluster.sh meu-arquivo.env    # Usa arquivo .env customizado
+#   DEBUG=true ./create-kafka-cluster.sh         # Habilita debug das variáveis
+#
+# VARIÁVEIS DE AMBIENTE OBRIGATÓRIAS:
+#   COMPARTMENT_ID - ID do compartment OCI
+#   SUBNET_ID      - ID da subnet OCI
+#
+# VARIÁVEIS OPCIONAIS:
+#   CLUSTER_NAME, KAFKA_VERSION, CLUSTER_TYPE, etc.
+#   Veja seção CONFIGURAÇÕES DO CLUSTER abaixo
 ################################################################################
 
 set -e  # Encerra o script em caso de erro
@@ -30,27 +42,63 @@ print_warning() {
 }
 
 ################################################################################
-# CONFIGURAÇÕES DO CLUSTER - MODIFIQUE AQUI COM SEUS VALORES
+# CARREGAMENTO DE VARIÁVEIS DE AMBIENTE
+################################################################################
+
+# Função para carregar arquivo .env se existir
+load_env_file() {
+    local env_file="${1:-.env}"
+    if [[ -f "$env_file" ]]; then
+        print_info "Carregando variáveis de ambiente do arquivo: $env_file"
+        # Usa source para carregar o arquivo .env no contexto atual
+        # O set -a/set +a deve estar fora da função para funcionar corretamente
+        source "$env_file"
+        print_info "Arquivo .env carregado com sucesso!"
+        return 0
+    else
+        print_warning "Arquivo .env não encontrado em: $env_file"
+        return 1
+    fi
+}
+
+# Habilita export automático de variáveis antes de carregar .env
+set -a
+
+# Verifica se foi passado um arquivo .env customizado como parâmetro
+if [[ $# -gt 0 ]]; then
+    ENV_FILE="$1"
+    print_info "Usando arquivo de ambiente customizado: $ENV_FILE"
+    load_env_file "$ENV_FILE"
+else
+    # Carrega o arquivo .env padrão se existir
+    load_env_file
+fi
+
+# Desabilita export automático após carregar .env
+set +a
+
+################################################################################
+# CONFIGURAÇÕES DO CLUSTER - DEFINA AS VARIÁVEIS NO ARQUIVO .env
 ################################################################################
 
 # IDs dos recursos OCI (obrigatórios)
-COMPARTMENT_ID="${COMPARTMENT_ID:-ocid1.compartment.oc1..exampleuniqueID}"
-SUBNET_ID="${SUBNET_ID:-ocid1.subnet.oc1..exampleuniqueID}"
+# COMPARTMENT_ID=ocid1.compartment.oc1..seu-compartment-id
+# SUBNET_ID=ocid1.subnet.oc1..seu-subnet-id
 
 # Configurações do Cluster
-CLUSTER_NAME="${CLUSTER_NAME:-kafka-cluster-prod}"
-KAFKA_VERSION="${KAFKA_VERSION:-3.5.1}"  # Versões disponíveis: 2.8.0, 3.2.0, 3.5.1, etc.
-CLUSTER_TYPE="${CLUSTER_TYPE:-DEVELOPMENT}"  # DEVELOPMENT ou PRODUCTION
-COORDINATION_TYPE="${COORDINATION_TYPE:-ZOOKEEPER}"  # ZOOKEEPER ou KRAFT
+# CLUSTER_NAME=kafka-cluster-prod
+# KAFKA_VERSION=3.5.1
+# CLUSTER_TYPE=DEVELOPMENT
+# COORDINATION_TYPE=ZOOKEEPER
 
 # Configurações do Broker
-NODE_COUNT="${NODE_COUNT:-1}"  # Número de nós broker
-OCPU_COUNT="${OCPU_COUNT:-1}"  # Número de OCPUs por nó
-STORAGE_SIZE="${STORAGE_SIZE:-100}"  # Tamanho do armazenamento em GB (mínimo 100)
+# NODE_COUNT=1
+# OCPU_COUNT=1
+# STORAGE_SIZE=100
 
 # Configuração do Cluster (opcional)
-CLUSTER_CONFIG_ID="${CLUSTER_CONFIG_ID:-}"
-CLUSTER_CONFIG_VERSION="${CLUSTER_CONFIG_VERSION:-}"
+# CLUSTER_CONFIG_ID=
+# CLUSTER_CONFIG_VERSION=
 
 # Tags (opcional)
 FREEFORM_TAGS='{"Environment":"Development","Project":"KafkaManaged"}'
@@ -81,35 +129,72 @@ if ! oci iam region list &> /dev/null; then
 fi
 
 # Valida valores obrigatórios
-if [[ "$COMPARTMENT_ID" == "ocid1.compartment.oc1..exampleuniqueID" ]]; then
-    print_error "Por favor, configure COMPARTMENT_ID com um valor válido"
+if [[ -z "$COMPARTMENT_ID" || ! "$COMPARTMENT_ID" =~ ^ocid1\.compartment\. ]]; then
+    print_error "COMPARTMENT_ID não está definido ou é inválido"
+    print_info "Defina no arquivo .env:"
+    print_info "COMPARTMENT_ID=ocid1.compartment.oc1..seu-compartment-id"
+    print_info "Valor atual: '${COMPARTMENT_ID:-NÃO DEFINIDO}'"
     exit 1
 fi
 
-if [[ "$SUBNET_ID" == "ocid1.subnet.oc1..exampleuniqueID" ]]; then
-    print_error "Por favor, configure SUBNET_ID com um valor válido"
+if [[ -z "$SUBNET_ID" || ! "$SUBNET_ID" =~ ^ocid1\.subnet\. ]]; then
+    print_error "SUBNET_ID não está definido ou é inválido"
+    print_info "Defina no arquivo .env:"
+    print_info "SUBNET_ID=ocid1.subnet.oc1..seu-subnet-id"
+    print_info "Valor atual: '${SUBNET_ID:-NÃO DEFINIDO}'"
     exit 1
 fi
 
 # Valida cluster type
-if [[ "$CLUSTER_TYPE" != "DEVELOPMENT" && "$CLUSTER_TYPE" != "PRODUCTION" ]]; then
+if [[ -z "$CLUSTER_TYPE" || ("$CLUSTER_TYPE" != "DEVELOPMENT" && "$CLUSTER_TYPE" != "PRODUCTION") ]]; then
     print_error "CLUSTER_TYPE deve ser DEVELOPMENT ou PRODUCTION"
+    print_info "Defina no arquivo .env: CLUSTER_TYPE=DEVELOPMENT"
     exit 1
 fi
 
 # Valida coordination type
-if [[ "$COORDINATION_TYPE" != "ZOOKEEPER" && "$COORDINATION_TYPE" != "KRAFT" ]]; then
+if [[ -z "$COORDINATION_TYPE" || ("$COORDINATION_TYPE" != "ZOOKEEPER" && "$COORDINATION_TYPE" != "KRAFT") ]]; then
     print_error "COORDINATION_TYPE deve ser ZOOKEEPER ou KRAFT"
+    print_info "Defina no arquivo .env: COORDINATION_TYPE=ZOOKEEPER"
     exit 1
 fi
 
 # Valida storage size
-if [[ $STORAGE_SIZE -lt 100 ]]; then
+if [[ -z "$STORAGE_SIZE" || $STORAGE_SIZE -lt 100 ]]; then
     print_error "STORAGE_SIZE deve ser no mínimo 100 GB"
+    print_info "Defina no arquivo .env: STORAGE_SIZE=100"
     exit 1
 fi
 
 print_info "Validações concluídas com sucesso!"
+
+################################################################################
+# DEBUG DAS VARIÁVEIS DE AMBIENTE
+################################################################################
+
+# Função para mostrar variáveis de ambiente (apenas se DEBUG estiver habilitado)
+show_env_debug() {
+    if [[ "${DEBUG:-false}" == "true" ]]; then
+        print_info "=========================================="
+        print_info "DEBUG - VARIÁVEIS DE AMBIENTE CARREGADAS"
+        print_info "=========================================="
+        echo "COMPARTMENT_ID: ${COMPARTMENT_ID:-'NÃO DEFINIDO'}"
+        echo "SUBNET_ID: ${SUBNET_ID:-'NÃO DEFINIDO'}"
+        echo "CLUSTER_NAME: ${CLUSTER_NAME:-'NÃO DEFINIDO'}"
+        echo "KAFKA_VERSION: ${KAFKA_VERSION:-'NÃO DEFINIDO'}"
+        echo "CLUSTER_TYPE: ${CLUSTER_TYPE:-'NÃO DEFINIDO'}"
+        echo "COORDINATION_TYPE: ${COORDINATION_TYPE:-'NÃO DEFINIDO'}"
+        echo "NODE_COUNT: ${NODE_COUNT:-'NÃO DEFINIDO'}"
+        echo "OCPU_COUNT: ${OCPU_COUNT:-'NÃO DEFINIDO'}"
+        echo "STORAGE_SIZE: ${STORAGE_SIZE:-'NÃO DEFINIDO'}"
+        echo "CLUSTER_CONFIG_ID: ${CLUSTER_CONFIG_ID:-'NÃO DEFINIDO'}"
+        echo "CLUSTER_CONFIG_VERSION: ${CLUSTER_CONFIG_VERSION:-'NÃO DEFINIDO'}"
+        print_info "=========================================="
+    fi
+}
+
+# Mostra debug se habilitado
+show_env_debug
 
 ################################################################################
 # CRIAÇÃO DOS ARQUIVOS JSON
