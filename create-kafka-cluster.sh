@@ -171,7 +171,7 @@ fi
 print_info "Verificando configuração do cluster Kafka..."
 
 # Lista as configurações disponíveis e pega a mais recente
-CLUSTER_CONFIG_INFO=$(oci kafka cluster-config list --compartment-id "$COMPARTMENT_ID" --query 'data[0]' --raw-output 2>/dev/null)
+CLUSTER_CONFIG_INFO=$(oci kafka cluster-config list --compartment-id "$COMPARTMENT_ID" --query 'data.items[0]' --raw-output 2>/dev/null)
 
 if [[ -z "$CLUSTER_CONFIG_INFO" || "$CLUSTER_CONFIG_INFO" == "null" ]]; then
     print_warning "Nenhuma configuração de cluster Kafka encontrada no compartment $COMPARTMENT_ID"
@@ -198,7 +198,7 @@ if [[ -z "$CLUSTER_CONFIG_INFO" || "$CLUSTER_CONFIG_INFO" == "null" ]]; then
         print_info "Configuração criada com sucesso!"
         
         # Obtém a configuração recém-criada
-        CLUSTER_CONFIG_INFO=$(oci kafka cluster-config list --compartment-id "$COMPARTMENT_ID" --query 'data[0]' --raw-output 2>/dev/null)
+        CLUSTER_CONFIG_INFO=$(oci kafka cluster-config list --compartment-id "$COMPARTMENT_ID" --query 'data.items[0]' --raw-output 2>/dev/null)
         
         if [[ -z "$CLUSTER_CONFIG_INFO" || "$CLUSTER_CONFIG_INFO" == "null" ]]; then
             print_error "Não foi possível obter a configuração recém-criada"
